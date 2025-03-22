@@ -19,8 +19,8 @@ app.use(helmet()); // Security headers
 app.use(compression()); // Response compression
 
 // Routes
-app.use("/api/products", productRoutes);
-app.use("/api/auth", authRoutes);
+app.use("/api/v1/products", productRoutes);
+app.use("/api/v1/auth", authRoutes);
 
 // Error Handling Middleware
 app.use(errorMiddleware);

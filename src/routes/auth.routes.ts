@@ -1,9 +1,14 @@
 import { Router } from "express";
+import { register, login, profile, verify, setPasswordController, logout } from "../controllers/auth.controller";
+import { authMiddleware } from "../middlewares/auth.middleware";
 
 const router = Router();
 
-router.get("/", (req, res) => {
-  res.json({ success: true, message: "Auth API is working!" });
-});
+router.post("/register", register);
+router.get("/verify-email", verify);
+router.post("/set-password", authMiddleware, setPasswordController);
+router.post("/login", login);
+router.get("/profile", authMiddleware, profile);
+router.post("/logout", authMiddleware, logout);
 
 export default router;
