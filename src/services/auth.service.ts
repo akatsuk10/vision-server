@@ -1,12 +1,17 @@
 import prisma from "../config/db";
 import bcrypt from "bcryptjs";
+import axios from "axios"
 import { sendVerificationEmail } from "./email.service";
 import { v4 as uuidv4 } from "uuid";
 import dotenv from "dotenv";
 import redis from "../config/redis";
 import { generateToken } from "../utils/auth";
 
+
+
 dotenv.config();
+
+
 
 
 export const invalidateToken = async (token: string) => {
@@ -69,7 +74,79 @@ export const setPassword = async (userId: string, password: string) => {
   return { accessToken };
 };
 
-// Step 4: Login user
+//Step 4 : Google Oauth 2.0
+
+
+async function getTokens(code: string) {
+  const url = "https://oauth2.googleapis.com/token";
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECERET  ;
+    
+  if (!clientId || !clientSecret) {
+    throw new Error("Google OAuth credentials are not configured");
+  }
+  const values = {
+    code,
+    client_id: clientId,
+    client_secret: clientSecret,
+    redirect_uri: `${process.env.SERVER_URI}/auth/google`,
+    grant_type: "authorization_code",
+  };
+
+  return axios
+    .post(url, new URLSearchParams(values), {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    })
+    .then((res) => res.data)
+    .catch((error) => {
+      console.error("Failed to fetch auth tokens", error.message);
+      throw new Error(error.message);
+    });
+}
+
+
+export async function authenticateUser(code: string) {
+  const { id_token, access_token } = await getTokens(code);
+
+  const googleUser = await axios
+    .get(`https://www.googleapis.com/oauth2/v1/userinfo?alt=json&access_token=${access_token}`, {
+      headers: { Authorization: `Bearer ${id_token}` },
+    })
+    .then((res) => res.data)
+    .catch((error) => {
+      console.error("Failed to fetch user", error.message);
+      throw new Error(error.message);
+    });
+
+  let user = await prisma.user.findUnique({
+    where: { email: googleUser.email },
+  });
+
+  if (!user) {
+    user = await prisma.user.create({
+      data: {
+        email: googleUser.email,
+        name: googleUser.name,
+        isEmailVerified: true,
+      },
+    });
+  }
+
+  const oldToken = await redis.get(`token:${user.id}`);
+  if (oldToken) {
+    await invalidateToken(oldToken);
+  }
+
+  const accessToken = await generateToken(user.id);
+  await redis.set(`token:${user.id}`, accessToken);
+
+  return { accessToken, user };
+}
+
+
+
+
+// Step 5: Login user
 export const loginUser = async (email: string, password: string) => {
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user || !user.password) throw new Error("Invalid credentials");
@@ -88,6 +165,7 @@ export const loginUser = async (email: string, password: string) => {
     const accessToken = await generateToken(user.id);
     return { accessToken };
 };
+
 
 
 // Get user profile

@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { registerUser, loginUser, getUserProfile, verifyEmail, setPassword, logoutUser } from "../services/auth.service";
+import { registerUser, authenticateUser, loginUser, getUserProfile, verifyEmail, setPassword, logoutUser } from "../services/auth.service";
 
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -33,6 +33,21 @@ export const setPasswordController = async (req: Request, res: Response) => {
     res.status(400).json({ success: false, message: error.message });
   }
 };
+
+
+
+export async function googleOAuthHandler(req: Request, res: Response) {
+  try {
+    const code = req.query.code as string;
+    const { accessToken, user } = await authenticateUser(code);
+
+    res.json({ accessToken, user });
+  } catch (error) {
+    console.log(error)
+    res.status(500).json({ error: "OAuth authentication failed" });
+  }
+}
+
 
 export const login = async (req: Request, res: Response): Promise<void> => {
   try {
