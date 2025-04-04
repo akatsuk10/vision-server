@@ -36,17 +36,35 @@ export const setPasswordController = async (req: Request, res: Response) => {
 
 
 
+// export async function googleOAuthHandler(req: Request, res: Response) {
+//   try {
+//     const code = req.query.code as string;
+//     const { accessToken, user } = await authenticateUser(code);
+
+//     res.json({ accessToken, user });
+//   } catch (error) {
+//     console.log(error)
+//     res.status(500).json({ error: "OAuth authentication failed" });
+//   }
+// }
+
 export async function googleOAuthHandler(req: Request, res: Response) {
   try {
     const code = req.query.code as string;
     const { accessToken, user } = await authenticateUser(code);
 
-    res.json({ accessToken, user });
+    // Instead of sending JSON response, redirect to frontend with data
+    const redirectUrl = `http://localhost:8080/auth/google/callback?accessToken=${encodeURIComponent(accessToken)}&user=${encodeURIComponent(JSON.stringify(user))}`;
+    res.redirect(redirectUrl);
   } catch (error) {
-    console.log(error)
-    res.status(500).json({ error: "OAuth authentication failed" });
+    console.log(error);
+    // Redirect to login page with error
+    res.redirect('http://localhost:8080/login?error=oauth_failed');
   }
 }
+
+
+
 
 
 export const login = async (req: Request, res: Response): Promise<void> => {
