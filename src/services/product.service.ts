@@ -4,7 +4,17 @@ import redis from "../config/redis";
 // Fetch all products (No Redis caching needed here)
 export const getAllProducts = async () => {
   return await prisma.product.findMany({
-    include: { user: true, votes: true, comments: true },
+    include: {
+      user: {
+        select: {
+          id: true,
+          name: true,
+          avatar: true,
+        },
+      },
+      votes: true,
+      comments: true,
+    },
   });
 };
 
