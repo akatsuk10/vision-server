@@ -1,15 +1,28 @@
 import { Request, Response } from "express";
 import { toggleVote, addCommentToProduct } from "../services/product.service";
 import redis from "../config/redis";
+import { AppError, ErrorCode, logError } from "../utils/error";
 
-export const toggleVoteProduct = async (req: Request, res: Response): Promise<void> => {
+export const toggleVoteProduct = async (req: Request, res: Response) => {
     try {
       const userId = req.user?.id;
       const { productId } = req.params;
   
       if (!userId) {
-        res.status(401).json({ error: "User not authenticated" });
-        return;
+        // Log unauthorized error
+        await logError({
+          code: ErrorCode.UNAUTHORIZED,
+          message: "User not authenticated",
+          error: new Error("Unauthorized")
+        });
+        
+        return res.status(401).json({ 
+          success: false, 
+          error: {
+            code: ErrorCode.UNAUTHORIZED,
+            message: "User not authenticated"
+          }
+        });
       }
   
       // Redis Key for this vote
@@ -19,8 +32,7 @@ export const toggleVoteProduct = async (req: Request, res: Response): Promise<vo
       const cachedVotes = await redis.get(redisKey);
       if (cachedVotes) {
         console.log("Cache hit! Returning cached votes");
-        res.json({ message: "Cached Vote Data", votes: JSON.parse(cachedVotes) });
-        return;
+        return res.json({ success: true, message: "Cached Vote Data", votes: JSON.parse(cachedVotes) });
       }
   
       // Otherwise, toggle vote in DB
@@ -29,21 +41,52 @@ export const toggleVoteProduct = async (req: Request, res: Response): Promise<vo
       // Clear the cached votes (invalidate cache)
       await redis.del(redisKey);
   
-      res.json({ message: voteStatus ? "Voted successfully" : "Vote removed" });
+      return res.json({ success: true, message: voteStatus ? "Voted successfully" : "Vote removed" });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      // Log the error with user ID if available
+      await logError({
+        userId: req.user?.id,
+        code: error instanceof AppError ? error.code : ErrorCode.INTERNAL_SERVER_ERROR,
+        message: error.message,
+        error: error
+      });
+      
+      // Send error response instead of throwing
+      const statusCode = error instanceof AppError ? error.statusCode : 500;
+      const errorCode = error instanceof AppError ? error.code : ErrorCode.INTERNAL_SERVER_ERROR;
+      const errorMessage = error.message || "An unexpected error occurred";
+      
+      return res.status(statusCode).json({
+        success: false,
+        error: {
+          code: errorCode,
+          message: errorMessage
+        }
+      });
     }
   };
 
-  export const commentOnProduct = async (req: Request, res: Response): Promise<void> => {
+  export const commentOnProduct = async (req: Request, res: Response) => {
     try {
       const userId = req.user?.id;
       const { productId } = req.params;
       const { content } = req.body;
   
       if (!userId) {
-        res.status(401).json({ error: "User not authenticated" });
-        return;
+        // Log unauthorized error
+        await logError({
+          code: ErrorCode.UNAUTHORIZED,
+          message: "User not authenticated",
+          error: new Error("Unauthorized")
+        });
+        
+        return res.status(401).json({ 
+          success: false, 
+          error: {
+            code: ErrorCode.UNAUTHORIZED,
+            message: "User not authenticated"
+          }
+        });
       }
   
       // Add comment in DB
@@ -55,8 +98,27 @@ export const toggleVoteProduct = async (req: Request, res: Response): Promise<vo
       // Invalidate (delete) cache
       await redis.del(redisKey);
   
-      res.json({ message: "Comment added", comment });
+      return res.json({ success: true, message: "Comment added successfully", comment });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      // Log the error with user ID if available
+      await logError({
+        userId: req.user?.id,
+        code: error instanceof AppError ? error.code : ErrorCode.INTERNAL_SERVER_ERROR,
+        message: error.message,
+        error: error
+      });
+      
+      // Send error response instead of throwing
+      const statusCode = error instanceof AppError ? error.statusCode : 500;
+      const errorCode = error instanceof AppError ? error.code : ErrorCode.INTERNAL_SERVER_ERROR;
+      const errorMessage = error.message || "An unexpected error occurred";
+      
+      return res.status(statusCode).json({
+        success: false,
+        error: {
+          code: errorCode,
+          message: errorMessage
+        }
+      });
     }
   };

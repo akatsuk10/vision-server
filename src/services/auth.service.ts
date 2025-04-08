@@ -1,4 +1,4 @@
-import prisma from "../config/db";
+import { postgresPrisma } from "../config/db";
 import bcrypt from "bcryptjs";
 import axios from "axios"
 import { sendVerificationEmail } from "./email.service";
@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from "uuid";
 import dotenv from "dotenv";
 import redis from "../config/redis";
 import { generateToken } from "../utils/auth";
+import { AppError, ErrorCode } from "../utils/error";
 
 dotenv.config();
 
@@ -15,12 +16,12 @@ export const invalidateToken = async (token: string) => {
 
 // Step 1: Register user and send verification email
 export const registerUser = async (email: string) => {
-    let user = await prisma.user.findUnique({ where: { email } });
+    let user = await postgresPrisma.user.findUnique({ where: { email } });
     if (user) {
-      throw new Error("Email is already in use");
+      return ("Email is already in use");
     }
     const verificationToken = uuidv4();
-    user = await prisma.user.create({
+    user = await postgresPrisma.user.create({
       data: {
         email,
         verificationToken,
@@ -32,11 +33,11 @@ export const registerUser = async (email: string) => {
 
 // Step 2: Verify email
 export const verifyEmail = async (token: string) => {
-  const user = await prisma.user.findUnique({ where: { verificationToken: token } });
+  const user = await postgresPrisma.user.findUnique({ where: { verificationToken: token } });
   if (!user) {
-    throw new Error("Invalid or expired token");
+    return ("Invalid or expired token");
   }
-  await prisma.user.update({
+  await postgresPrisma.user.update({
     where: { id: user.id },
     data: {
       isEmailVerified: true,
@@ -50,7 +51,7 @@ export const verifyEmail = async (token: string) => {
 // Step 3: Set Password
 export const setPassword = async (userId: string, password: string) => {
   const hashedPassword = await bcrypt.hash(password, 10);
-  await prisma.user.update({
+  await postgresPrisma.user.update({
     where: { id: userId },
     data: {
       password: hashedPassword,
@@ -66,7 +67,7 @@ async function getTokens(code: string) {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECERET  ;
   if (!clientId || !clientSecret) {
-    throw new Error("Google OAuth credentials are not configured");
+    return ("Google OAuth credentials are not configured");
   }
   const values = {
     code,
@@ -82,7 +83,7 @@ async function getTokens(code: string) {
     .then((res) => res.data)
     .catch((error) => {
       console.error("Failed to fetch auth tokens", error.message);
-      throw new Error(error.message);
+      return(error.message);
     });
 }
 
@@ -95,13 +96,13 @@ export async function authenticateUser(code: string) {
     .then((res) => res.data)
     .catch((error) => {
       console.error("Failed to fetch user", error.message);
-      throw new Error(error.message);
+      return(error.message);
     });
-  let user = await prisma.user.findUnique({
+  let user = await postgresPrisma.user.findUnique({
     where: { email: googleUser.email },
   });
   if (!user) {
-    user = await prisma.user.create({
+    user = await postgresPrisma.user.create({
       data: {
         email: googleUser.email,
         name: googleUser.name,
@@ -119,11 +120,11 @@ export async function authenticateUser(code: string) {
 }
 // Step 5: Login user
 export const loginUser = async (email: string, password: string) => {
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user || !user.password) throw new Error("Invalid credentials");
-    if (!user.isEmailVerified) throw new Error("Email not verified");
+    const user = await postgresPrisma.user.findUnique({ where: { email } });
+    if (!user || !user.password) return("Invalid credentials");
+    if (!user.isEmailVerified) return("Email not verified");
     const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) throw new Error("Invalid credentials");
+    if (!isPasswordValid) return("Invalid credentials");
     // ✅ Retrieve old token and blacklist it
     const oldToken = await redis.get(`token:${user.id}`);
     if (oldToken) {
@@ -135,7 +136,7 @@ export const loginUser = async (email: string, password: string) => {
 };
 // Get user profile
 export const getUserProfile = async (userId: string) => {
-  return await prisma.user.findUnique({ where: { id: userId } });
+  return await postgresPrisma.user.findUnique({ where: { id: userId } });
 };
 
 export const logoutUser = async (token: string) => {

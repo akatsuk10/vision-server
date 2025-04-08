@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
+import { AppError, ErrorCode } from "../utils/error";
 
 dotenv.config();
 
@@ -12,12 +13,19 @@ const transporter = nodemailer.createTransport({
 });
 
 export const sendVerificationEmail = async (email: string, token: string) => {
-  const verificationLink = `${process.env.CLIENT_URL}/verify-email?token=${token}`;
+  try {
+    const verificationLink = `${process.env.CLIENT_URL}/verify-email?token=${token}`;
 
-  await transporter.sendMail({
-    from: `"Vision Hunt" <${process.env.SMTP_EMAIL}>`,
-    to: email,
-    subject: "Verify Your Email",
-    html: `<p>Click <a href="${verificationLink}">here</a> to verify your email.</p>`,
-  });
+    await transporter.sendMail({
+      from: `"Vision Hunt" <${process.env.SMTP_EMAIL}>`,
+      to: email,
+      subject: "Verify Your Email",
+      html: `<p>Click <a href="${verificationLink}">here</a> to verify your email.</p>`,
+    });
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    throw new AppError(ErrorCode.API_REQUEST_FAILED, error instanceof Error ? error.message : "Failed to send verification email", 500);
+  }
 };

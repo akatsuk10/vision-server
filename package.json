@@ -4,7 +4,7 @@
   "description": "this is a server repo",
   "main": "index.js",
   "scripts": {
-    "dev": "nodemon src/server.ts",
+    "dev": "mkdir -p generated/mongodb generated/postgres && npx prisma generate --schema=./prisma/mongodb/schema.prisma && npx prisma generate --schema=./prisma/postgres/schema.prisma && nodemon src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js"
   },

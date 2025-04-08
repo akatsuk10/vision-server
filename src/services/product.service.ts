@@ -1,112 +1,150 @@
-import prisma from "../config/db";
+import { postgresPrisma } from "../config/db";
 import redis from "../config/redis";
+import { AppError, ErrorCode } from "../utils/error";
 
 // Fetch all products (No Redis caching needed here)
 export const getAllProducts = async () => {
-  return await prisma.product.findMany({
-    include: {
-      user: {
-        select: {
-          id: true,
-          name: true,
-          avatar: true,
+  try {
+    return await postgresPrisma.product.findMany({
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            avatar: true,
+          },
         },
+        votes: true,
+        comments: true,
       },
-      votes: true,
-      comments: true,
-    },
-  });
+    });
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    throw new AppError(ErrorCode.INTERNAL_SERVER_ERROR, error instanceof Error ? error.message : "Failed to fetch products", 500);
+  }
 };
 
 //Create Product
 export const createProduct = async (userId: string, name: string, description: string, image:string, link:string) => {
-  // Check if user exists
-  const userExists = await prisma.user.findUnique({ where: { id: userId } });
-  if (!userExists) {
-    throw new Error("User not found");
+  try {
+    // Check if user exists
+    const userExists = await postgresPrisma.user.findUnique({ where: { id: userId } });
+    if (!userExists) {
+      throw new AppError(ErrorCode.RECORD_NOT_FOUND, "User not found", 404);
+    }
+
+    // Create the product
+    const product = await postgresPrisma.product.create({
+      data: {
+        userId,
+        name,         // ✅ Use 'name' instead of 'title'
+        description,
+        image,
+        link,
+      },
+    });
+
+    // Invalidate cached product list
+    await redis.del("products:all");
+
+    return product;
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    throw new AppError(ErrorCode.INTERNAL_SERVER_ERROR, error instanceof Error ? error.message : "Failed to create product", 500);
   }
-
-  // Create the product
-  const product = await prisma.product.create({
-    data: {
-      userId,
-      name,         // ✅ Use 'name' instead of 'title'
-      description,
-      image,
-      link,
-    },
-  });
-
-  // Invalidate cached product list
-  await redis.del("products:all");
-
-  return product;
 };
 
 // Toggle vote (Redis cache is invalidated)
 export const toggleVote = async (userId: string, productId: string) => {
-  const existingVote = await prisma.vote.findUnique({
-    where: { userId_productId: { userId, productId } },
-  });
+  try {
+    const existingVote = await postgresPrisma.vote.findUnique({
+      where: { userId_productId: { userId, productId } },
+    });
 
-  if (existingVote) {
-    await prisma.vote.delete({ where: { id: existingVote.id } });
-    // Invalidate cache
-    await redis.del(`product:${productId}:votes`);
-    return false;
-  } else {
-    await prisma.vote.create({ data: { userId, productId } });
-    // Invalidate cache
-    await redis.del(`product:${productId}:votes`);
-    return true;
+    if (existingVote) {
+      // Remove vote
+      await postgresPrisma.vote.delete({
+        where: { userId_productId: { userId, productId } },
+      });
+      return false; // Vote removed
+    } else {
+      // Add vote
+      await postgresPrisma.vote.create({
+        data: { userId, productId },
+      });
+      return true; // Vote added
+    }
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    throw new AppError(ErrorCode.INTERNAL_SERVER_ERROR, error instanceof Error ? error.message : "Failed to toggle vote", 500);
   }
 };
 
-// Add comment (Redis cache is invalidated)
+// Add comment to product
 export const addCommentToProduct = async (userId: string, productId: string, content: string) => {
-  const comment = await prisma.comment.create({ data: { userId, productId, content } });
-
-  // Invalidate comments cache
-  await redis.del(`product:${productId}:comments`);
-  return comment;
+  try {
+    const comment = await postgresPrisma.comment.create({
+      data: { userId, productId, content },
+    });
+    return comment;
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    throw new AppError(ErrorCode.INTERNAL_SERVER_ERROR, error instanceof Error ? error.message : "Failed to add comment", 500);
+  }
 };
 
-// ✅ New Function: Get Votes (Use Redis for caching)
+// Get votes for a product
 export const getVotesForProduct = async (productId: string) => {
-  const redisKey = `product:${productId}:votes`;
-
-  // Check Redis cache
-  const cachedVotes = await redis.get(redisKey);
-  if (cachedVotes) {
-    return JSON.parse(cachedVotes);
+  try {
+    const votes = await postgresPrisma.vote.findMany({
+      where: { productId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            avatar: true,
+          },
+        },
+      },
+    });
+    return votes;
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    throw new AppError(ErrorCode.INTERNAL_SERVER_ERROR, error instanceof Error ? error.message : "Failed to get votes", 500);
   }
-
-  // Fetch from DB
-  const votes = await prisma.vote.count({ where: { productId } });
-
-  // Cache votes in Redis for 10 minutes
-  await redis.set(redisKey, JSON.stringify(votes), "EX", 600);
-
-  return votes;
 };
 
-// ✅ New Function: Get Comments (Use Redis for caching)
+// Get comments for a product
 export const getCommentsForProduct = async (productId: string) => {
-  const redisKey = `product:${productId}:comments`;
-
-  // Check Redis cache
-  const cachedComments = await redis.get(redisKey);
-  if (cachedComments) {
-    return JSON.parse(cachedComments);
+  try {
+    const comments = await postgresPrisma.comment.findMany({
+      where: { productId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            avatar: true,
+          },
+        },
+      },
+    });
+    return comments;
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    throw new AppError(ErrorCode.INTERNAL_SERVER_ERROR, error instanceof Error ? error.message : "Failed to get comments", 500);
   }
-
-  // Fetch from DB
-  const comments = await prisma.comment.findMany({
-    where: { productId },
-    orderBy: { createdAt: "desc" },
-  });
-
-  // Cache comments in Redis for 10 minutes
-  await redis.set(redisKey, JSON.stringify(comments), "EX", 600);
-  return comments;
 };

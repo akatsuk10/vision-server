@@ -1,0 +1,28 @@
+generator client {
+  provider = "prisma-client-js"
+  output = "../../generated/mongodb"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("MONGODB_URL")
+}
+
+model UserError {
+    id String @id @default(auto()) @map("_id") @db.ObjectId
+    userId String
+    code String
+    message String
+    error String
+    metadata String?
+    createdAt DateTime @default(now())
+}
+
+model PublicError {
+    id String @id @default(auto()) @map("_id") @db.ObjectId
+    code String
+    message String
+    error String
+    metadata String?
+    createdAt DateTime @default(now())
+}
