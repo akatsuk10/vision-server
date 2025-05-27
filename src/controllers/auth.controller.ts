@@ -15,8 +15,17 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       error: error
     });
     
-    // Throw a standardized error
-    throw new AppError(ErrorCode.INVALID_INPUT, error.message, 400);
+    const statusCode = error instanceof AppError ? error.statusCode : 500;
+    const errorCode = error instanceof AppError ? error.code : ErrorCode.INTERNAL_SERVER_ERROR;
+    const errorMessage = statusCode !== 500 ? error.message : "An unexpected error occurred";
+    
+    res.status(statusCode).json({
+      success: false,
+      error: {
+        code: errorCode,
+        message: errorMessage
+      }
+    });
   }
 };
 

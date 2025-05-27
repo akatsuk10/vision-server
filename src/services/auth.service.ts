@@ -1,4 +1,5 @@
 import { postgresPrisma } from "../config/db";
+import { z } from "zod";
 import bcrypt from "bcryptjs";
 import axios from "axios"
 import { sendVerificationEmail } from "./email.service";
@@ -9,6 +10,7 @@ import { generateToken } from "../utils/auth";
 import { AppError, ErrorCode } from "../utils/error";
 
 dotenv.config();
+const emailSchema = z.string().email();
 
 export const invalidateToken = async (token: string) => {
   await redis.set(`blacklist:${token}`, "true", "EX", 7 * 24 * 60 * 60); // Add token to blacklist for 7 days
@@ -16,36 +18,74 @@ export const invalidateToken = async (token: string) => {
 
 // Step 1: Register user and send verification email
 export const registerUser = async (email: string) => {
-    let user = await postgresPrisma.user.findUnique({ where: { email } });
-    if (user) {
-      return ("Email is already in use");
+  // Validate email format
+  const parsed = emailSchema.safeParse(email);
+   if (!parsed.success) {
+      throw new AppError(ErrorCode.INVALID_INPUT, "Invalid email address", 400);
     }
-    const verificationToken = uuidv4();
-    user = await postgresPrisma.user.create({
-      data: {
-        email,
-        verificationToken,
-      },
-    });
-    await sendVerificationEmail(email, verificationToken);
-    return { message: "Verification email sent" };
-  };
-
-// Step 2: Verify email
-export const verifyEmail = async (token: string) => {
-  const user = await postgresPrisma.user.findUnique({ where: { verificationToken: token } });
-  if (!user) {
-    return ("Invalid or expired token");
+  // Check if email is already in use
+  const existingUser = await postgresPrisma.user.findUnique({ where: { email } });
+  if (existingUser) {
+    throw new AppError(ErrorCode.INVALID_INPUT, "Email already exists", 400);
   }
-  await postgresPrisma.user.update({
-    where: { id: user.id },
+
+  // Create verification token and user
+  const verificationToken = uuidv4();
+  
+  // Store verification data in Redis temporarily (expires in 24 hours)
+  const verificationData = {
+    email,
+    token: verificationToken,
+    createdAt: new Date().toISOString()
+  };
+  
+  // Store in Redis with 24 hour expiration
+  await redis.setex(`verification:${verificationToken}`, 24 * 60 * 60, JSON.stringify(verificationData));
+  
+  // Also store by email to prevent duplicate registration attempts
+  await redis.setex(`pending:${email}`, 24 * 60 * 60, verificationToken);
+
+  // Send verification email
+  await sendVerificationEmail(email, verificationToken);
+
+  return { message: "Verification email sent" };
+};
+
+// Step 2: Verify email - Only create user in database after verification
+export const verifyEmail = async (token: string) => {
+  // Get verification data from Redis
+  const verificationDataStr = await redis.get(`verification:${token}`);
+  
+  if (!verificationDataStr) {
+    throw new AppError(ErrorCode.TOKEN_INVALID, "Invalid or expired verification token", 400);
+  }
+
+  const verificationData = JSON.parse(verificationDataStr);
+  const { email } = verificationData;
+
+  // Check if user already exists (in case of race condition)
+  const existingUser = await postgresPrisma.user.findUnique({ where: { email } });
+  if (existingUser) {
+    // Clean up Redis data
+    await redis.del(`verification:${token}`, `pending:${email}`);
+    throw new AppError(ErrorCode.DUPLICATE_ENTRY, "Email already exists", 400);
+  }
+
+  // NOW create the user in database (only after verification)
+  const user = await postgresPrisma.user.create({
     data: {
-      isEmailVerified: true,
-      verificationToken: null,
+      email,
+      isEmailVerified: true, // Already verified since they clicked the link
     },
   });
+
+  // Clean up Redis verification data
+  await redis.del(`verification:${token}`, `pending:${email}`);
+
+  // Generate temporary token for password setup
   const tempToken = await generateToken(user.id);
-  return { tempToken };
+  
+  return { tempToken, userId: user.id };
 };
 
 // Step 3: Set Password
