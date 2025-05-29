@@ -1,0 +1,16 @@
+-- AlterTable
+ALTER TABLE "Product" ADD COLUMN     "featured" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "hasPreInvestor" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "initialDeposit" DOUBLE PRECISION,
+ADD COLUMN     "ipoSlots" INTEGER,
+ADD COLUMN     "launchDate" TIMESTAMP(3),
+ADD COLUMN     "makerNote" TEXT,
+ADD COLUMN     "preValuationPrice" DOUBLE PRECISION,
+ADD COLUMN     "sharesVC" DOUBLE PRECISION,
+ADD COLUMN     "status" TEXT,
+ADD COLUMN     "tagline" TEXT,
+ADD COLUMN     "tags" TEXT[],
+ADD COLUMN     "tokenImage" TEXT,
+ADD COLUMN     "tokenSymbol" TEXT,
+ADD COLUMN     "type" TEXT,
+ADD COLUMN     "website" TEXT;

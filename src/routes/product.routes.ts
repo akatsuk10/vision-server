@@ -2,7 +2,7 @@ import { Router, Request, Response, RequestHandler } from "express";
 import { getAllProducts} from "../services/product.service";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import {commentOnProduct, toggleVoteProduct} from "../controllers/voteComment.controller"
-import { createProductHandler } from "../controllers/product.controller";
+import { createProductHandler, getProductByIdHandler, deleteProductHandler } from "../controllers/product.controller";
 import { AppError, ErrorCode, logError } from "../utils/error";
 
 const router = Router();
@@ -43,5 +43,9 @@ router.post("/:productId/vote", authMiddleware, toggleVoteProduct as unknown as 
 router.post("/:productId/comment", authMiddleware, commentOnProduct as unknown as RequestHandler);
 
 router.post("/", authMiddleware, createProductHandler as unknown as RequestHandler);
+
+router.get("/:productId", getProductByIdHandler as unknown as RequestHandler);
+
+router.delete("/:productId", authMiddleware, deleteProductHandler as unknown as RequestHandler);
 
 export default router;

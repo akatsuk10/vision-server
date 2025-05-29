@@ -1,0 +1,15 @@
+-- AlterTable
+ALTER TABLE "Product" ADD COLUMN     "analytics" JSONB,
+ADD COLUMN     "bannerImage" TEXT,
+ADD COLUMN     "demoVideo" TEXT,
+ADD COLUMN     "downloadLinks" TEXT[],
+ADD COLUMN     "firstComment" TEXT,
+ADD COLUMN     "galleryImages" TEXT[],
+ADD COLUMN     "interactiveDemo" TEXT,
+ADD COLUMN     "logo" TEXT,
+ADD COLUMN     "makers" TEXT[],
+ADD COLUMN     "pricingTag" TEXT,
+ADD COLUMN     "promo" TEXT,
+ADD COLUMN     "scheduleDate" TIMESTAMP(3),
+ADD COLUMN     "topics" TEXT[],
+ADD COLUMN     "twitter" TEXT;
