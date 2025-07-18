@@ -1,6 +1,128 @@
 import { Request, Response } from "express";
 import { registerUser, authenticateUser, loginUser, getUserProfile, verifyEmail, setPassword, logoutUser } from "../services/auth.service";
 import { AppError, ErrorCode, logError } from "../utils/error";
+import { generateNonce } from "../utils/auth";
+import postgresPrisma from '../config/db';
+import nacl from 'tweetnacl';
+import bs58 from 'bs58';
+
+// In-memory nonce store (use Redis for production)
+const walletNonces = new Map<string, string>();
+
+
+export const getWalletNonce = async (req: Request, res: Response) => {
+  try {
+    const { wallet } = req.query;
+    if (!wallet || typeof wallet !== 'string') {
+      throw new AppError(ErrorCode.INVALID_INPUT, 'Wallet is required', 400);
+    }
+
+    const nonce = generateNonce();
+    walletNonces.set(wallet, nonce);
+    res.json({ nonce });
+  } catch (error: any) {
+    await logError({
+      code: error instanceof AppError ? error.code : ErrorCode.INTERNAL_SERVER_ERROR,
+      message: error.message,
+      error: error,
+    });
+
+    const statusCode = error instanceof AppError ? error.statusCode : 500;
+    const errorCode = error instanceof AppError ? error.code : ErrorCode.INTERNAL_SERVER_ERROR;
+    res.status(statusCode).json({ success: false, error: { code: errorCode, message: error.message } });
+  }
+};
+
+
+
+export const walletLogin = async (req: Request, res: Response) => {
+  try {
+    const { walletAddress, signature, nonce } = req.body;
+    if (!walletAddress || !signature || !nonce) {
+      throw new AppError(ErrorCode.INVALID_INPUT, 'Missing fields', 400);
+    }
+
+    const expectedNonce = walletNonces.get(walletAddress);
+    if (!expectedNonce || expectedNonce !== nonce) {
+      throw new AppError(ErrorCode.INVALID_INPUT, 'Invalid nonce', 400);
+    }
+
+    const pubkey = bs58.decode(walletAddress);
+    const msg = new TextEncoder().encode(nonce);
+    const sig = bs58.decode(signature);
+    const valid = nacl.sign.detached.verify(msg, sig, pubkey);
+    if (!valid) {
+      throw new AppError(ErrorCode.UNAUTHORIZED, 'Invalid signature', 401);
+    }
+
+    const user = await postgresPrisma.user.findUnique({ where: { walletAddress } });
+    if (!user) {
+      res.json({ registered: false });
+    } else {
+      res.json({ registered: true, user });
+    }
+  } catch (error: any) {
+    await logError({
+      code: error instanceof AppError ? error.code : ErrorCode.INTERNAL_SERVER_ERROR,
+      message: error.message,
+      error: error,
+    });
+
+    const statusCode = error instanceof AppError ? error.statusCode : 500;
+    const errorCode = error instanceof AppError ? error.code : ErrorCode.INTERNAL_SERVER_ERROR;
+    res.status(statusCode).json({ success: false, error: { code: errorCode, message: error.message } });
+  }
+};
+
+
+export const walletRegister = async (req: Request, res: Response) => {
+  try {
+    const { walletAddress, signature, nonce, email } = req.body;
+    if (!walletAddress || !signature || !nonce || !email) {
+      throw new AppError(ErrorCode.INVALID_INPUT, 'Missing fields', 400);
+    }
+
+    const expectedNonce = walletNonces.get(walletAddress);
+    if (!expectedNonce || expectedNonce !== nonce) {
+      throw new AppError(ErrorCode.INVALID_INPUT, 'Invalid nonce', 400);
+    }
+
+    const pubkey = bs58.decode(walletAddress);
+    const msg = new TextEncoder().encode(nonce);
+    const sig = bs58.decode(signature);
+    const valid = nacl.sign.detached.verify(msg, sig, pubkey);
+    if (!valid) {
+      throw new AppError(ErrorCode.UNAUTHORIZED, 'Invalid signature', 401);
+    }
+
+    // Check if email exists
+    const existingUser = await postgresPrisma.user.findUnique({ where: { email } });
+    if (!existingUser) {
+      throw new AppError(ErrorCode.RECORD_NOT_FOUND, 'No user found with this email. Please register with email first.', 404);
+    }
+    if (existingUser.walletAddress) {
+      throw new AppError(ErrorCode.DUPLICATE_ENTRY, 'Wallet already linked to this user.', 400);
+    }
+
+    // Update user to add walletAddress
+    const updatedUser = await postgresPrisma.user.update({
+      where: { email },
+      data: { walletAddress },
+    });
+    res.json({ registered: true, user: updatedUser });
+  } catch (error: any) {
+    await logError({
+      code: error instanceof AppError ? error.code : ErrorCode.INTERNAL_SERVER_ERROR,
+      message: error.message,
+      error: error,
+    });
+
+    const statusCode = error instanceof AppError ? error.statusCode : 500;
+    const errorCode = error instanceof AppError ? error.code : ErrorCode.INTERNAL_SERVER_ERROR;
+    res.status(statusCode).json({ success: false, error: { code: errorCode, message: error.message } });
+  }
+};
+
 
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -46,6 +168,8 @@ export const verify = async (req: Request, res: Response) => {
     throw new AppError(ErrorCode.INVALID_INPUT, error.message, 400);
   }
 };
+
+
 
 export const setPasswordController = async (req: Request, res: Response) => {
   try {

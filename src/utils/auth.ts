@@ -11,3 +11,12 @@ export const generateToken = async (userId: string) => {
 
   return token;
 };
+
+export function generateNonce(length = 24) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let nonce = '';
+  for (let i = 0; i < length; i++) {
+    nonce += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return nonce;
+}

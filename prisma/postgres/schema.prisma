@@ -18,6 +18,7 @@ model User {
   verificationToken  String?  @unique
   createdAt          DateTime @default(now())
   updatedAt   DateTime @updatedAt @default(now())
+  walletAddress      String?  @unique
 
   products           Product[]
   votes              Vote[]
