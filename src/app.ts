@@ -10,13 +10,24 @@ import { errorMiddleware } from "./middlewares/error.middleware";
 dotenv.config(); // Load environment variables
 
 const app = express();
-
+// CORS configuration
+const corsOptions = {
+    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['set-cookie']
+  };
+  
 // Middlewares
-app.use(cors()); // Enable CORS
+app.use(cors(corsOptions)); // Enable CORS
 app.use(express.json()); // Parse JSON requests
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded requests
 app.use(helmet()); // Security headers
 app.use(compression()); // Response compression
+
+// BigInt JSON serialization middleware
+
 
 // Routes
 app.use("/api/v1/products", productRoutes);

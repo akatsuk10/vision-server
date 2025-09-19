@@ -36,6 +36,8 @@ const getAllProductsHandler: RequestHandler = async (req, res) => {
 
 router.get("/", getAllProductsHandler);
 
+router.post("/createproduct",authMiddleware,createProductHandler as unknown as RequestHandler);
+
 // Vote on a product
 router.post("/:productId/vote", authMiddleware, toggleVoteProduct as unknown as RequestHandler);
 

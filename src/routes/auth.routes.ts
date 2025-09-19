@@ -16,6 +16,6 @@ router.post("/logout", authMiddleware, logout);
 // Solana wallet auth endpoints
 router.get("/wallet-nonce", getWalletNonce);
 router.post("/wallet-login", walletLogin);
-router.post("/wallet-register", walletRegister);
+router.post("/wallet-register",authMiddleware, walletRegister);
 
 export default router;

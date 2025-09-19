@@ -3,6 +3,7 @@ import { registerUser, authenticateUser, loginUser, getUserProfile, verifyEmail,
 import { AppError, ErrorCode, logError } from "../utils/error";
 import { generateNonce } from "../utils/auth";
 import postgresPrisma from '../config/db';
+import { generateToken } from "../utils/auth";
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 
@@ -44,22 +45,53 @@ export const walletLogin = async (req: Request, res: Response) => {
 
     const expectedNonce = walletNonces.get(walletAddress);
     if (!expectedNonce || expectedNonce !== nonce) {
-      throw new AppError(ErrorCode.INVALID_INPUT, 'Invalid nonce', 400);
+      throw new AppError(ErrorCode.INVALID_INPUT, 'Invalid or expired nonce', 400);
     }
 
+    // Verify the signature
     const pubkey = bs58.decode(walletAddress);
-    const msg = new TextEncoder().encode(nonce);
+    const msg = new TextEncoder().encode(`Sign this message to verify your wallet. Nonce: ${nonce}`);
     const sig = bs58.decode(signature);
     const valid = nacl.sign.detached.verify(msg, sig, pubkey);
     if (!valid) {
       throw new AppError(ErrorCode.UNAUTHORIZED, 'Invalid signature', 401);
     }
 
-    const user = await postgresPrisma.user.findUnique({ where: { walletAddress } });
+    // Find user by wallet address
+    const user = await postgresPrisma.user.findUnique({ 
+      where: { walletAddress },
+      select:{
+        id:true,
+              }
+      
+    });
+
     if (!user) {
-      res.json({ registered: false });
-    } else {
-      res.json({ registered: true, user });
+      // Clean up nonce after successful verification
+      walletNonces.delete(walletAddress);
+      res.json({ 
+        success: true, 
+        registered: false,
+        message: 'Wallet not registered. Please sign up first.'
+      });
+    }else{
+
+      
+      // Generate access token
+      const accessToken = await generateToken(user.id);
+      
+      // Clean up nonce after successful login
+      walletNonces.delete(walletAddress);
+      
+      // Return success response with token and user data
+      res.json({
+        success: true,
+        data: {
+          accessToken,
+          user
+        },
+        registered: true
+      });
     }
   } catch (error: any) {
     await logError({
@@ -73,43 +105,76 @@ export const walletLogin = async (req: Request, res: Response) => {
     res.status(statusCode).json({ success: false, error: { code: errorCode, message: error.message } });
   }
 };
+
 
 
 export const walletRegister = async (req: Request, res: Response) => {
   try {
-    const { walletAddress, signature, nonce, email } = req.body;
-    if (!walletAddress || !signature || !nonce || !email) {
-      throw new AppError(ErrorCode.INVALID_INPUT, 'Missing fields', 400);
+    const { walletAddress, signature, nonce } = req.body;
+    const userId = req.user?.id;
+    
+    // Basic validation
+    if (!walletAddress || !signature || !nonce || !userId) {
+      throw new AppError(ErrorCode.INVALID_INPUT, 'Missing required fields', 400);
     }
 
+    // Verify nonce
     const expectedNonce = walletNonces.get(walletAddress);
     if (!expectedNonce || expectedNonce !== nonce) {
-      throw new AppError(ErrorCode.INVALID_INPUT, 'Invalid nonce', 400);
+      throw new AppError(ErrorCode.INVALID_INPUT, 'Invalid or expired nonce', 403);
     }
 
+    // Verify signature
     const pubkey = bs58.decode(walletAddress);
-    const msg = new TextEncoder().encode(nonce);
-    const sig = bs58.decode(signature);
-    const valid = nacl.sign.detached.verify(msg, sig, pubkey);
-    if (!valid) {
+    const message = `Sign this message to verify your wallet. Nonce: ${nonce}`;
+    const messageBytes = new TextEncoder().encode(message);
+    const signatureBytes = bs58.decode(signature);
+
+    const isValid = nacl.sign.detached.verify(
+      messageBytes,
+      signatureBytes,
+      pubkey
+    );
+
+    if (!isValid) {
       throw new AppError(ErrorCode.UNAUTHORIZED, 'Invalid signature', 401);
     }
 
-    // Check if email exists
-    const existingUser = await postgresPrisma.user.findUnique({ where: { email } });
-    if (!existingUser) {
-      throw new AppError(ErrorCode.RECORD_NOT_FOUND, 'No user found with this email. Please register with email first.', 404);
-    }
-    if (existingUser.walletAddress) {
-      throw new AppError(ErrorCode.DUPLICATE_ENTRY, 'Wallet already linked to this user.', 400);
+    // Check if wallet is already registered to another user
+    const existingUser = await postgresPrisma.user.findFirst({ 
+      where: { 
+        walletAddress,
+        id: { not: userId } // Exclude current user
+      } 
+    });
+
+    if (existingUser) {
+      throw new AppError(ErrorCode.DUPLICATE_ENTRY, 'Wallet address is already registered to another account', 409);
     }
 
-    // Update user to add walletAddress
+    // Update user with wallet address
     const updatedUser = await postgresPrisma.user.update({
-      where: { email },
+      where: { id: userId },
       data: { walletAddress },
+      select: {
+        id: true,
+        email: true,
+        walletAddress: true,
+        createdAt: true
+      }
     });
-    res.json({ registered: true, user: updatedUser });
+
+    // Clean up nonce
+    walletNonces.delete(walletAddress);
+
+    res.status(200).json({ 
+      success: true, 
+      data: {
+        user: updatedUser,
+        message: 'Wallet address successfully registered'
+      }
+    });
+
   } catch (error: any) {
     await logError({
       code: error instanceof AppError ? error.code : ErrorCode.INTERNAL_SERVER_ERROR,
@@ -119,9 +184,18 @@ export const walletRegister = async (req: Request, res: Response) => {
 
     const statusCode = error instanceof AppError ? error.statusCode : 500;
     const errorCode = error instanceof AppError ? error.code : ErrorCode.INTERNAL_SERVER_ERROR;
-    res.status(statusCode).json({ success: false, error: { code: errorCode, message: error.message } });
+    
+     res.status(statusCode).json({ 
+      success: false, 
+      error: { 
+        code: errorCode, 
+        message: error.message 
+      } 
+    });
   }
 };
+
+
 
 
 export const register = async (req: Request, res: Response): Promise<void> => {

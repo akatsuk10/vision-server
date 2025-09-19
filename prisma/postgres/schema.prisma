@@ -28,39 +28,39 @@ model User {
 model Product {
   id          String   @id @default(uuid())
   name        String
-  tagline     String? // Short catchy tagline
   description String
-  type        String? // Type of the product
-  image       String
-  tokenSymbol String? // Token symbol
-  tokenImage  String? // Token image
-  link        String
-  website     String? // Official website
-  status      String? // launched, coming soon, beta, etc.
-  tags        String[] // Array of tags/categories
-  featured    Boolean  @default(false) // For featured products
-  launchDate  DateTime? // Date of launch
-  hasPreInvestor Boolean @default(false) // Is there any pre investor?
-  preValuationPrice Float? // Pre Valuation price of the Token
-  initialDeposit    Float? // Initial deposit to pool
-  sharesVC         Float? // Percentage of shares allotted for VC and Public
-  ipoSlots         Int?   // No of IPO slots allotted
-  makerNote        String? // Optional note from the maker/founder
-  demoVideo        String? // URL to demo video (YouTube, etc.)
-  bannerImage      String? // URL to banner image
-  logo            String? // URL to logo image
-  galleryImages   String[] // Array of gallery image URLs
-  downloadLinks   String[] // Array of download/app store URLs
-  pricingTag      String? // e.g., Free, Paid, Free trial
-  promo           String? // Promo code or offer
-  twitter         String? // Product/company Twitter handle
-  firstComment    String? // Maker's first comment
-  interactiveDemo String? // URL to interactive demo (Arcade, etc.)
-  topics          String[] // Array of topics/categories
-  makers          String[] // Array of co-maker names or IDs
-  scheduleDate    DateTime? // Scheduled launch date
-  views           Int      @default(0) // Product views
-  upvotes         Int      @default(0) // Product upvotes
+  tokenSymbol String?
+  initialDepositLamports BigInt
+  ipoSlots    Int
+  initialTokenSupply String
+  launchDate  DateTime
+  imageHash   String?
+  
+  mint        String?  
+  tokenPool   String?  
+  slot        BigInt?  
+  blockTime   BigInt?  
+  
+  productPDA      String?  
+  treasuryPDA     String?
+  poolAuthorityPDA String? 
+  tokenPoolPDA    String?  
+  
+  image       String?
+  website     String?
+  status      String? @default("draft") 
+  tags        String[]
+  featured    Boolean  @default(false)
+  
+  twitter     String?
+  demoVideo   String?
+  bannerImage String?
+  logo        String?
+  galleryImages String[]
+  
+  views       Int      @default(0)
+  upvotes     Int      @default(0)
+  
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt @default(now())
 
@@ -68,6 +68,10 @@ model Product {
   user        User     @relation(fields: [userId], references: [id])
   votes       Vote[]
   comments    Comment[]
+  
+  @@index([userId])
+  @@index([status])
+  @@index([launchDate])
 }
 
 model Vote {

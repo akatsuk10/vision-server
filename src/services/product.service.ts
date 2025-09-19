@@ -26,28 +26,37 @@ export const getAllProducts = async () => {
   }
 };
 
-//Create Product
+// Create Product
 export const createProduct = async (productData: {
   userId: string;
   name: string;
-  tagline?: string;
   description: string;
-  type?: string;
-  image: string;
   tokenSymbol?: string;
-  tokenImage?: string;
-  link: string;
+  initialDepositLamports: bigint;
+  ipoSlots: number;
+  initialTokenSupply: string;
+  launchDate: Date;
+  imageHash?: string;
+  
+  // On-chain related fields
+  mint?: string;
+  tokenPool?: string;
+  slot?: bigint;
+  blockTime?: bigint;
+  
+  // PDA addresses
+  productPDA?: string;
+  treasuryPDA?: string;
+  poolAuthorityPDA?: string;
+  tokenPoolPDA?: string;
+  
+  // Additional metadata
+  image?: string;
   website?: string;
   status?: string;
   tags?: string[];
   featured?: boolean;
-  launchDate?: Date;
-  hasPreInvestor?: boolean;
-  preValuationPrice?: number;
-  initialDeposit?: number;
-  sharesVC?: number;
-  ipoSlots?: number;
-  makerNote?: string;
+  twitter?: string;
   demoVideo?: string;
   bannerImage?: string;
   logo?: string;
@@ -55,7 +64,6 @@ export const createProduct = async (productData: {
   downloadLinks?: string[];
   pricingTag?: string;
   promo?: string;
-  twitter?: string;
   firstComment?: string;
   interactiveDemo?: string;
   topics?: string[];
@@ -63,30 +71,105 @@ export const createProduct = async (productData: {
   scheduleDate?: Date;
 }) => {
   try {
-    // Check if user exists
-    const userExists = await postgresPrisma.user.findUnique({ where: { id: productData.userId } });
-    if (!userExists) {
-      await logError({
-        code: ErrorCode.RECORD_NOT_FOUND,
-        message: "User not found",
-        error: new Error("User not found")
-      });
-      throw new AppError(ErrorCode.RECORD_NOT_FOUND, "User not found", 404);
-    }
-
-    // Create the product
-    const product = await postgresPrisma.product.create({
-      data: {
-        ...productData,
-        views: 0,
-        upvotes: 0
-      },
+    console.log('Creating product with data:', {
+      ...productData,
+      // Don't log sensitive data
+      userId: productData.userId ? '[REDACTED]' : undefined
     });
 
-    // Invalidate cached product list
-    await redis.del("products:all");
+    // Check if user exists
+    const userExists = await postgresPrisma.user.findUnique({ 
+      where: { id: productData.userId } 
+    });
+    
+    if (!userExists) {
+      const error = new AppError(ErrorCode.RECORD_NOT_FOUND, "User not found", 404);
+      await logError({
+        code: ErrorCode.RECORD_NOT_FOUND,
+        message: `User not found: ${productData.userId}`,
+        error: error
+      });
+      throw error;
+    }
 
-    return product;
+    // Validate required fields
+    if (!productData.name || !productData.description) {
+      const error = new AppError(ErrorCode.INVALID_INPUT, "Name and description are required", 400);
+      await logError({
+        code: ErrorCode.INVALID_INPUT,
+        message: "Missing required fields",
+        error: error
+      });
+      throw error;
+    }
+
+    try {
+      // Prepare product data according to Prisma schema
+      const productDataForDb = {
+        name: productData.name,
+        description: productData.description,
+        tokenSymbol: productData.tokenSymbol,
+        initialDepositLamports: productData.initialDepositLamports,
+        ipoSlots: productData.ipoSlots,
+        initialTokenSupply: productData.initialTokenSupply,
+        launchDate: new Date(productData.launchDate),
+        imageHash: productData.imageHash,
+        
+        // Optional fields with defaults
+        image: productData.image || null,
+        website: productData.website || null,
+        status: productData.status || 'draft',
+        tags: productData.tags || [],
+        featured: productData.featured || false,
+        twitter: productData.twitter || null,
+        demoVideo: productData.demoVideo || null,
+        bannerImage: productData.bannerImage || null,
+        logo: productData.logo || null,
+        galleryImages: productData.galleryImages || [],
+        pricingTag: productData.pricingTag || null,
+        promo: productData.promo || null,
+        firstComment: productData.firstComment || null,
+        interactiveDemo: productData.interactiveDemo || null,
+        topics: productData.topics || [],
+        makers: productData.makers || [],
+        scheduleDate: productData.scheduleDate ? new Date(productData.scheduleDate) : null,
+        
+        // On-chain fields
+        mint: productData.mint || null,
+        tokenPool: productData.tokenPool || null,
+        slot: productData.slot || null,
+        blockTime: productData.blockTime || null,
+        
+        // PDA addresses
+        productPDA: productData.productPDA || null,
+        treasuryPDA: productData.treasuryPDA || null,
+        poolAuthorityPDA: productData.poolAuthorityPDA || null,
+        tokenPoolPDA: productData.tokenPoolPDA || null,
+        
+        // System fields
+        userId: productData.userId,
+        views: 0,
+        upvotes: 0
+      };
+      
+      // Create the product
+      const product = await postgresPrisma.product.create({
+        data: productDataForDb
+      });
+
+      // Invalidate cached product list
+      await redis.del("products:all");
+
+      console.log('Product created successfully:', product.id);
+      return product;
+    } catch (dbError) {
+      console.error('Database error creating product:', dbError);
+      throw new AppError(
+        ErrorCode.QUERY_FAILED, 
+        `Failed to create product: ${dbError instanceof Error ? dbError.message : 'Unknown error'}`, 
+        500
+      );
+    }
   } catch (error) {
     await logError({
       code: error instanceof AppError ? error.code : ErrorCode.INTERNAL_SERVER_ERROR,
@@ -257,8 +340,16 @@ export const deleteProduct = async (productId: string, userId: string) => {
     await postgresPrisma.vote.deleteMany({ where: { productId } });
     await postgresPrisma.comment.deleteMany({ where: { productId } });
     await postgresPrisma.product.delete({ where: { id: productId } });
+    
+    // Invalidate Redis cache
     await redis.del("products:all");
-    return { message: "Product deleted successfully" };
+    
+    // Return a serializable response
+    return { 
+      success: true,
+      message: "Product deleted successfully",
+      timestamp: new Date().toISOString()
+    };
   } catch (error) {
     await logError({
       code: error instanceof AppError ? error.code : ErrorCode.INTERNAL_SERVER_ERROR,
